@@ -1,0 +1,92 @@
+version: 2.1
+
+workflows:
+  version: 2.1
+  toy-flask-pipeline:
+    jobs:
+      - build
+      - integration-test:
+          requires:
+            - build
+      - publish:
+          requires:
+            - integration-test
+
+jobs:
+  build:
+    executor: toy-flask-builder
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - checkout
+      - run:
+          name: Build Image and Run Tests
+          command: |-
+            pwd
+            ls -lh
+            docker-compose build
+      - run:
+          # TODO: there will only be a test report to extract if the
+          # build finishes successfully. How do we address this?
+          name: Extract Unit Test Report
+          command: |-
+            mkdir -p test_reports
+            docker container create --name extract toy-flask:local-test
+            docker container cp extract:/test_reports .
+            docker container rm -f extract
+      - store_test_results:
+          path: ./test_reports
+      - run:
+          name: Tar Images For Downstream Jobs
+          command: |-
+            mkdir -p image_tars
+            docker save -o image_tars/toy-flask.local.tar toy-flask:local
+            docker save -o image_tars/toy-flask.local-test.tar toy-flask:local-test
+      - persist_to_workspace:
+          root: .
+          paths:
+            - image_tars
+  integration-test:
+    executor: toy-flask-builder
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Untar Images
+          command: |-
+            docker load -i image_tars/toy-flask.local.tar
+            docker load -i image_tars/toy-flask.local-test.tar
+      - run:
+          name: Run Integration Tests
+          command: |-
+            ./tests/run_integration_tests.sh
+      - store_test_results:
+          path: ./test_reports
+  publish:
+    executor: toy-flask-builder
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - attach_workspace:
+          at: .
+      - run:
+          name: Untar Images
+          command: |-
+            docker load -i image_tars/toy-flask.local.tar
+      - run:
+          name: Publish Image
+          command: |-
+            echo "I'm a stub for pushing up the tested Docker image!"
+
+executors:
+  toy-flask-builder:
+    docker:
+      - image: circleci/python:3.7
+        # aws_auth:
+        #   aws_access_key_id: $ECR_AWS_ACCESS_KEY_ID
+        #   aws_secret_access_key: $ECR_AWS_SECRET_ACCESS_KEY
+    working_directory: ~/dockerized-integration-test-poc
+

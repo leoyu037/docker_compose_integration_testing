@@ -1,0 +1,30 @@
+version: '3.7'
+services:
+  toy-flask-es:
+    build:
+      context: ./resources/elasticsearch/
+    image: toy-flask-es:local
+    environment:
+      discovery.type: single-node
+      # https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html#_configuration_files_must_be_readable_by_the_elasticsearch_user
+      TAKE_FILE_OWNERSHIP: 1
+    ports:
+      - 9200:9200
+
+  toy-flask:
+    build: .
+    image: toy-flask:local
+    environment:
+      ES_HOST: toy-flask-es:9200
+    ports:
+      - 80:80
+
+  toy-flask-test:
+    build:
+      context: .
+      target: test-image
+    image: toy-flask:local-test
+    environment:
+      ES_HOST: toy-flask-es:9200
+      TOY_FLASK_HOST: toy-flask:80
+    command: echo "Run me separately:\ndocker-compose run toy-flask-test pytest tests/integration"
